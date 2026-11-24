@@ -22,9 +22,6 @@ Measured on six months of tickets (May to October 2026) that were never used for
 | Duplicates found that staff had missed | 46 of 91 |
 | Simulated annual operational loss | $13.8M expected; $50.0M at the 99.9% level |
 
-## The assignment, step by step
-
-The project follows the six steps of the in-class brief for the **operational risk** domain.
 
 ### 1. Business decision and risk outcome
 
