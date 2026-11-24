@@ -163,7 +163,7 @@
   D.monitoring.months.forEach(function (m) {
     mo.appendChild(el("tr", { title: m.flags.join("; ") }, "<td class='mono'>" + monthLabel(m.month) + "</td><td class='r'>" + fmt.int(m.tickets) + "</td><td class='r'>" +
       fmt.pct1(m.override_rate) + "</td><td class='r'>" + fmt.pct1(m.team_override_rate) + "</td><td class='r'>" + fmt.dec3(m.psi_category_mix) + "</td><td class='r'>" +
-      fmt.dec3(m.psi_predicted_severity) + "</td><td class='r'>" + fmt.pct0(m.fast_path_share) + "</td><td><span class='status " + m.status + "'>" + m.status +
+      fmt.dec3(m.psi_predicted_severity) + "</td><td class='r'>" + fmt.pct0(m.fast_path_share) + "</td><td><span class='status " + m.status + "'>" + { ok: "OK", watch: "Watch", alert: "Alert" }[m.status] +
       "</span>" + (m.flags.length ? "<br><span class='small'>" + esc(m.flags.join("; ")) + "</span>" : "") + "</td>"));
   });
 
