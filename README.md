@@ -3,6 +3,7 @@
 An operational risk project: an AI agent that triages IT incident tickets, finds recurring root causes and quantifies operational loss, with human review built into every decision.
 
 **Live demo:** https://aishwaryapurohit15.github.io/incident-triage-agent/
+**End-user walkthrough:** https://aishwaryapurohit15.github.io/incident-triage-agent/walkthrough.html (a guided, clickable tour of the console as a triage coordinator and a risk manager would use it)
 
 The agent reads each new incident ticket, suggests its severity and owning team, links it to similar past incidents and routes it to the right level of human review. It can read and suggest, but it cannot close a ticket, change severity or reassign work. Those actions stay with people.
 
