@@ -1,0 +1,752 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Incident Triage Agent</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="An operational risk project: an AI agent that triages IT incidents, finds recurring root causes and quantifies operational loss, with human review built in.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: a single reading column (max 1120px) with a sticky section index; the live triage console opens the page. */
+:root {
+  --bg: #f3f3f1;
+  --surface: #ffffff;
+  --surface-2: #ebebe8;
+  --ink: #1c1d1f;
+  --muted: #5d6066;
+  --faint: #8a8d92;
+  --line: #d9d9d5;
+  --accent: #39434d;
+  --accent-ink: #ffffff;
+  --sev1: #8c3b32;
+  --sev2: #b07434;
+  --sev3: #6d7869;
+  --sev4: #a3a6a0;
+  --ok: #4f6b55;
+  --watch: #a7782f;
+  --alert: #8c3b32;
+  --font-sans: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --radius: 6px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141517; --surface: #1c1e21; --surface-2: #24272b; --ink: #e9e9e7; --muted: #a2a5aa; --faint: #74777d;
+    --line: #30333a; --accent: #b6bec6; --accent-ink: #141517;
+    --sev1: #d2786b; --sev2: #d8a463; --sev3: #9aa695; --sev4: #6f726d;
+    --ok: #8fb495; --watch: #d8a463; --alert: #d2786b; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141517; --surface: #1c1e21; --surface-2: #24272b; --ink: #e9e9e7; --muted: #a2a5aa; --faint: #74777d;
+  --line: #30333a; --accent: #b6bec6; --accent-ink: #141517;
+  --sev1: #d2786b; --sev2: #d8a463; --sev3: #9aa695; --sev4: #6f726d;
+  --ok: #8fb495; --watch: #d8a463; --alert: #d2786b; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--font-sans); font-size: 16px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-underline-offset: 3px; }
+a:focus-visible, button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.wrap {
+  max-width: 1120px; margin: 0 auto;
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
+}
+.mono { font-family: var(--font-mono); }
+.num { font-variant-numeric: tabular-nums; }
+
+/* Header */
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
+.topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); }
+.topbar .wrap { display: flex; align-items: center; gap: 24px; min-height: 56px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: -0.01em; text-decoration: none; white-space: nowrap; }
+.brand-mark { width: 22px; height: 22px; border-radius: 4px; background: var(--accent); display: grid; place-items: center; }
+.brand-mark span { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-ink); }
+.nav { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; margin-left: auto; }
+.nav::-webkit-scrollbar { display: none; }
+.nav a { font-size: 13.5px; color: var(--muted); text-decoration: none; padding: 6px 10px; border-radius: 4px; white-space: nowrap; }
+.nav a:hover { color: var(--ink); background: var(--surface-2); }
+.nav a.active { color: var(--ink); background: var(--surface-2); }
+
+/* Type */
+h1, h2, h3 { text-wrap: balance; letter-spacing: -0.015em; margin: 0; }
+h1 { font-size: clamp(2rem, 4.4vw, 3.1rem); line-height: 1.1; font-weight: 600; }
+h2 { font-size: clamp(1.5rem, 2.6vw, 1.95rem); line-height: 1.2; font-weight: 600; }
+h3 { font-size: 1.06rem; line-height: 1.35; font-weight: 600; }
+p { margin: 0; }
+.lede { font-size: 1.12rem; color: var(--muted); max-width: 64ch; }
+.prose { max-width: 68ch; color: var(--ink); display: grid; gap: 14px; }
+.prose p { color: var(--muted); }
+.prose strong { color: var(--ink); font-weight: 600; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.small { font-size: 13.5px; color: var(--muted); }
+
+/* Hero */
+.hero { padding-block: 56px 40px; border-bottom: 1px solid var(--line); }
+.hero-grid { display: grid; gap: 40px; grid-template-columns: minmax(0, 1fr); }
+.hero-copy { display: grid; gap: 18px; align-content: start; }
+.hero-meta { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13.5px; color: var(--muted); }
+.hero-meta b { color: var(--ink); font-weight: 600; }
+.cta-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  font: 500 14px/1 var(--font-sans); padding: 10px 14px; border-radius: var(--radius); cursor: pointer; text-decoration: none; }
+.btn:hover { border-color: var(--faint); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover { opacity: 0.92; }
+
+/* KPI strip */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; margin-top: 8px; }
+.kpi { background: var(--surface); padding: 16px 18px; display: grid; gap: 4px; align-content: start; }
+.kpi .v { font-size: 1.6rem; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.kpi .l { font-size: 13px; color: var(--muted); line-height: 1.4; }
+
+/* Console (live demo) */
+.console { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.console-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--surface-2); flex-wrap: wrap; }
+.console-head .eyebrow { color: var(--ink); }
+.console-body { display: grid; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 900px) { .console-body { grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr); } }
+.console-form { padding: 18px; display: grid; gap: 14px; align-content: start; border-bottom: 1px solid var(--line); }
+@media (min-width: 900px) { .console-form { border-bottom: 0; border-right: 1px solid var(--line); } }
+.field { display: grid; gap: 6px; align-content: start; }
+.field label { font-size: 12.5px; font-weight: 500; color: var(--muted); }
+.row2 { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+select, textarea, input[type="text"] { width: 100%; font: 14.5px/1.45 var(--font-sans); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 9px 11px; }
+textarea { resize: vertical; min-height: 92px; }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: 500 12.5px/1 var(--font-sans); color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 7px 11px; cursor: pointer; }
+.chip:hover { color: var(--ink); border-color: var(--faint); }
+.console-out { padding: 18px; display: grid; gap: 18px; align-content: start; min-width: 0; }
+.verdict { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.sev-badge { font: 600 15px/1 var(--font-mono); padding: 8px 10px; border-radius: 4px; color: #fff; background: var(--sev3); }
+:root[data-theme="dark"] .sev-badge, :root:not([data-theme="light"]) .sev-badge { color: var(--accent-ink); }
+.route { white-space: nowrap; display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); }
+.route::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.route.fast_path { color: var(--ok); }
+.route.full_review { color: var(--watch); }
+.route.escalate_now { color: var(--alert); }
+.bars { display: grid; gap: 7px; }
+.bar { display: grid; grid-template-columns: 64px minmax(0, 1fr) 48px; align-items: center; gap: 10px; font-size: 13px; }
+.bar.wide { grid-template-columns: minmax(0, 190px) minmax(0, 1fr) 48px; }
+.bar .lab { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar .track { display: block; height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+.bar .fill { display: block; height: 100%; border-radius: 4px; background: var(--accent); transition: width 0.35s ease; }
+@media (prefers-reduced-motion: reduce) { .bar .fill { transition: none; } }
+.bar .pv { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 12.5px; }
+.sim-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.sim-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: baseline; font-size: 13.5px; padding: 8px 10px; background: var(--bg); border-radius: 4px; }
+.sim-list .id { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.sim-list .d { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sim-list .s { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.out-label { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); margin-bottom: 8px; }
+.rationale { font-size: 14px; color: var(--muted); }
+details.json { border-top: 1px solid var(--line); padding-top: 12px; }
+details.json summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+pre { margin: 0; font: 12.5px/1.55 var(--font-mono); background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; overflow-x: auto; color: var(--ink); }
+
+/* Sections */
+section.block { padding-block: 64px; border-bottom: 1px solid var(--line); scroll-margin-top: 64px; }
+.sec-head { display: grid; gap: 10px; margin-bottom: 28px; max-width: 72ch; }
+.step-tag { font-family: var(--font-mono); font-size: 12px; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
+.grid2 { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
+.grid3 { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 20px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+.panel p { color: var(--muted); font-size: 14.5px; }
+.panel h3 + p { margin-top: -4px; }
+.chart-box { position: relative; height: 280px; }
+.chart-box.tall { height: auto; }
+.svgc { width: 100%; height: 100%; }
+.svgc svg { display: block; font-family: var(--font-sans); }
+.legend-line i { height: 3px; }
+.chart-note { font-size: 13px; color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; background: var(--surface-2); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; }
+td.mono { font-size: 13px; }
+tr.champion td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.tag { display: inline-block; font: 600 11px/1 var(--font-sans); letter-spacing: 0.05em; text-transform: uppercase; padding: 4px 7px; border-radius: 3px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.tag.granted { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.tag.denied { color: var(--alert); border-color: color-mix(in srgb, var(--alert) 45%, transparent); }
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; }
+.status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.status.ok { color: var(--ok); } .status.watch { color: var(--watch); } .status.alert { color: var(--alert); }
+
+/* Heatmap */
+.heat { display: grid; grid-template-columns: minmax(130px, 1.6fr) repeat(4, minmax(48px, 1fr)); gap: 3px; font-size: 12.5px; min-width: 420px; }
+.heat .h { font-weight: 600; color: var(--muted); text-align: center; padding: 4px 0; font-family: var(--font-mono); }
+.heat .rl { color: var(--ink); padding: 6px 8px 6px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.heat .c { text-align: center; padding: 6px 0; border-radius: 3px; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+
+/* Confusion matrix */
+.cm { display: grid; grid-template-columns: 70px repeat(4, minmax(52px, 1fr)); gap: 3px; font-size: 12.5px; font-family: var(--font-mono); max-width: 420px; }
+.cm .h { color: var(--muted); text-align: center; padding: 4px 0; }
+.cm .c { text-align: center; padding: 10px 0; border-radius: 3px; font-variant-numeric: tabular-nums; }
+
+/* Workflow diagram */
+.flow-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 18px; }
+.flow-wrap svg { display: block; min-width: 760px; width: 100%; height: auto; }
+.flow-wrap text { font-family: var(--font-sans); }
+
+/* Timeline */
+.phases { display: grid; gap: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.phase { display: grid; grid-template-columns: minmax(0, 170px) minmax(0, 1fr); gap: 20px; padding: 18px 20px; border-bottom: 1px solid var(--line); }
+.phase:last-child { border-bottom: 0; }
+.phase .when { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); }
+.phase .when b { display: block; font-family: var(--font-sans); font-size: 15px; color: var(--ink); margin-bottom: 2px; }
+.phase ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 14.5px; }
+.phase .gate { margin-top: 8px; font-size: 13.5px; }
+.phase .gate b { color: var(--ink); font-weight: 600; }
+@media (max-width: 640px) { .phase { grid-template-columns: minmax(0, 1fr); gap: 6px; } }
+
+.list { margin: 0; padding-left: 18px; color: var(--muted); font-size: 14.5px; display: grid; gap: 6px; }
+.list b { color: var(--ink); font-weight: 600; }
+.callout { border-left: 3px solid var(--accent); padding: 4px 0 4px 16px; color: var(--muted); font-size: 14.5px; max-width: 72ch; }
+.callout b { color: var(--ink); }
+
+footer { padding-block: 40px 56px; color: var(--muted); font-size: 13.5px; }
+footer .wrap { display: grid; gap: 10px; }
+.noscript { padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true"><span></span></span>Incident Triage Agent</a>
+    <nav class="nav" aria-label="Sections">
+      <a href="#decision">Decision</a>
+      <a href="#data">Data</a>
+      <a href="#methods">Methods</a>
+      <a href="#analytics">Risk analytics</a>
+      <a href="#agent">Agent</a>
+      <a href="#governance">Governance</a>
+      <a href="#plan">Plan</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+
+<!-- Hero with the live triage console -->
+<div class="hero">
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <span class="eyebrow">Operational risk · IT incident management</span>
+      <h1>An AI agent that triages incidents, finds repeat failures and quantifies operational loss</h1>
+      <p class="lede">The agent reads each new IT incident ticket, suggests its severity and owning team, links it to similar past incidents and routes it to the right level of human review. It never closes a ticket or changes severity on its own.</p>
+      <div class="hero-meta">
+        <span><b class="num" data-k="quality.rows" data-f="int"></b> incident tickets</span>
+        <span><b>24</b> months of history</span>
+        <span><b>12</b> business services</span>
+        <span><b>8</b> resolver teams</span>
+      </div>
+      <div class="kpis" aria-label="Headline results on the six-month test period">
+        <div class="kpi"><span class="v" data-k="routing.triage_minutes_saved_pct" data-f="pct0"></span><span class="l">less triage effort on the test period</span></div>
+        <div class="kpi"><span class="v" data-k="routing.sev1_caught_by_escalation_or_review" data-f="pct1"></span><span class="l">of SEV-1 incidents kept off the fast path</span></div>
+        <div class="kpi"><span class="v" data-k="test.team.tfidf_baseline.accuracy" data-f="pct1"></span><span class="l">owner suggestions match the team that worked the ticket</span></div>
+        <div class="kpi"><span class="v" data-k="risk.loss_distribution.var_99_9" data-f="usdm"></span><span class="l">annual operational loss at the 99.9% level</span></div>
+      </div>
+    </div>
+
+    <div class="console" id="demo" aria-labelledby="demo-title">
+      <div class="console-head">
+        <span class="eyebrow" id="demo-title">Live triage demo</span>
+        <span class="small">Runs in your browser with the TF-IDF model. Nothing is sent anywhere.</span>
+      </div>
+      <div class="console-body">
+        <form class="console-form" id="ticket-form" autocomplete="off">
+          <div class="field">
+            <span class="out-label" style="margin:0">Try an example</span>
+            <div class="presets" id="presets"></div>
+          </div>
+          <div class="row2">
+            <div class="field"><label for="f-service">Service</label><select id="f-service"></select></div>
+            <div class="field"><label for="f-channel">Reported through</label>
+              <select id="f-channel"><option>Service Portal</option><option>Monitoring Alert</option><option>Email</option><option>Phone</option></select></div>
+          </div>
+          <div class="field"><label for="f-short">Short description</label><input type="text" id="f-short" maxlength="200"></div>
+          <div class="field"><label for="f-desc">Description</label><textarea id="f-desc" maxlength="4000"></textarea></div>
+          <div class="cta-row"><button class="btn primary" type="submit">Triage ticket</button><span class="small" id="demo-status" aria-live="polite"></span></div>
+        </form>
+        <div class="console-out" id="demo-out" aria-live="polite">
+          <div class="verdict">
+            <span class="sev-badge" id="o-sev">SEV-3</span>
+            <span id="o-route" class="route full_review">Full review</span>
+            <span class="small" id="o-team"></span>
+          </div>
+          <p class="rationale" id="o-rationale"></p>
+          <div><div class="out-label">Severity probabilities</div><div class="bars" id="o-sevbars"></div></div>
+          <div><div class="out-label">Suggested owner</div><div class="bars" id="o-teambars"></div></div>
+          <div><div class="out-label">Similar past incidents</div><ul class="sim-list" id="o-sim"></ul></div>
+          <details class="json"><summary>Suggestion record (JSON)</summary><pre id="o-json"></pre></details>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<noscript><div class="wrap" style="padding-block:24px"><p class="noscript">This page uses JavaScript to draw charts and run the triage demo. The full analysis is also in the project README on GitHub.</p></div></noscript>
+
+<!-- 1. Decision -->
+<section class="block" id="decision">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="step-tag">Step 1 · Business decision and risk outcome</span>
+      <h2>Every incident needs three fast decisions, and getting them wrong costs money</h2>
+    </div>
+    <div class="grid2">
+      <div class="prose">
+        <p>A mid-sized bank's service desk logs about <strong class="num" data-k="risk.incidents_per_month" data-f="int"></strong> IT incidents a month across payments, card authorization, digital banking and back-office systems. For each one, a triage coordinator decides:</p>
+        <ul class="list">
+          <li><b>How severe is it?</b> Severity sets the response clock, from 4 hours for SEV-1 to 72 hours for SEV-4.</li>
+          <li><b>Who owns it?</b> A ticket sent to the wrong team waits in the wrong queue.</li>
+          <li><b>Is it a repeat?</b> Duplicate reports waste effort, and recurring failures point to a root cause that should be fixed once.</li>
+        </ul>
+        <p>The <strong>risk outcome</strong> is under-triage: a serious incident treated as minor. It delays the response, breaches resolution targets and lets customer-facing losses grow. Over-triage is cheaper but pulls senior engineers away from real outages. The project measures both with a cost matrix that weights under-triage of a SEV-1 incident 100 times more than a correct call.</p>
+      </div>
+      <div class="panel">
+        <h3>Decision owner and scope</h3>
+        <div class="table-wrap" style="border:0">
+          <table>
+            <tbody>
+              <tr><td style="width:42%"><b>Decision</b></td><td>Severity, owning team and duplicate link for each new ticket</td></tr>
+              <tr><td><b>Who decides</b></td><td>Triage coordinator on the service desk; the agent only suggests</td></tr>
+              <tr><td><b>Risk taxonomy</b></td><td>Basel II operational risk event types, mostly business disruption and system failures</td></tr>
+              <tr><td><b>Harm measured</b></td><td>Under-triage rate, SLA breaches, financial loss and customers affected</td></tr>
+              <tr><td><b>Out of scope</b></td><td>Fixing the incident, closing tickets and customer communication</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 2. Data -->
+<section class="block" id="data">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="step-tag">Step 2 · Data sources, grain, time window and quality</span>
+      <h2>Two years of incident tickets, with the problems real ticket exports have</h2>
+      <p class="lede">The dataset is synthetic but built to behave like a real IT service management export. A hidden ground-truth file holds each ticket's true root cause, true severity and true duplicate link, so every method can be scored honestly.</p>
+    </div>
+    <div class="grid3">
+      <div class="panel">
+        <h3>Sources</h3>
+        <ul class="list">
+          <li><b>Incident tickets</b>: free text, timestamps, service, channel, team and severity</li>
+          <li><b>Resolution records</b>: resolution time and notes</li>
+          <li><b>Loss events</b>: customers affected and financial loss in USD</li>
+          <li><b>Change records</b>: whether a change preceded the incident</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Grain and window</h3>
+        <ul class="list">
+          <li><b>Grain</b>: one row per incident ticket</li>
+          <li><b>Window</b>: <span data-k="quality.first_incident" data-f="date"></span> to <span data-k="quality.last_incident" data-f="date"></span></li>
+          <li><b>Training</b>: <span data-k="split.train_period"></span>, with Feb to Apr 2026 held back for model selection</li>
+          <li><b>Test</b>: <span data-k="split.test_period"></span> (<span class="num" data-k="split.test_rows" data-f="int"></span> tickets), never used for any choice</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Why a time-based split</h3>
+        <p>Random splits leak the future into training: the model would learn about an outage from tickets filed after it. Training on the past and testing on later months also exposes the model to real drift, including a new payments vendor that went live in July 2026.</p>
+      </div>
+    </div>
+
+    <h3 style="margin:36px 0 14px">Data-quality issues found and how each was handled</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Issue</th><th class="r">Rows</th><th>Handling</th></tr></thead>
+        <tbody>
+          <tr><td>Inconsistent category labels ("NW", "Netwrk", "network")</td><td class="r"><span data-k="quality.raw_category_labels" data-f="int"></span> labels</td><td>Mapped to <span data-k="quality.clean_category_labels" data-f="int"></span> controlled categories; the models read ticket text instead of the label</td></tr>
+          <tr><td>Exact duplicate rows from the export</td><td class="r" data-k="quality.exact_duplicate_rows" data-f="int"></td><td>Removed before any analysis</td></tr>
+          <tr><td>Duplicate reports of the same outage</td><td class="r" data-k="quality.duplicate_note_rows" data-f="int"></td><td>Flagged by staff only some of the time; the agent suggests links (see Methods)</td></tr>
+          <tr><td>Missing resolution notes</td><td class="r"><span data-k="quality.missing_resolution_notes" data-f="int"></span> (<span data-k="quality.missing_resolution_notes_pct"></span>%)</td><td>Notes are not used as model inputs, since they do not exist at triage time</td></tr>
+          <tr><td>Unassigned tickets</td><td class="r" data-k="quality.unassigned_tickets" data-f="int"></td><td>Excluded from owner-model training and scoring</td></tr>
+          <tr><td>Resolved before opened</td><td class="r" data-k="quality.resolved_before_opened" data-f="int"></td><td>Resolution time set to unknown, so SLA figures are not distorted</td></tr>
+          <tr><td>Never resolved</td><td class="r" data-k="quality.never_resolved" data-f="int"></td><td>Kept for volume counts, excluded from resolution-time statistics</td></tr>
+          <tr><td>Vague descriptions ("Not working.")</td><td class="r"><span data-k="quality.vague_descriptions" data-f="int"></span> (<span data-k="quality.vague_descriptions_pct"></span>%)</td><td>Kept; low model confidence sends them to full human review</td></tr>
+          <tr><td>Typos and abbreviations ("pls", "db", "prod")</td><td class="r">Widespread</td><td>Text normalization expands common abbreviations and masks numbers and change IDs</td></tr>
+          <tr><td>Severity recorded with errors</td><td class="r">About 9%</td><td>Measured against the hidden true severity to separate model error from label noise</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- 3. Methods -->
+<section class="block" id="methods">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="step-tag">Step 3 · Analytical methods and trade-offs</span>
+      <h2>Simple, explainable models won on cost, and the LLM is kept as a measured challenger</h2>
+      <p class="lede">Each method was scored on the same untouched test months. The champion was chosen on the validation months by the lowest misclassification cost per ticket, not by accuracy alone, because under-triage is far more expensive than over-triage.</p>
+    </div>
+
+    <div class="table-wrap">
+      <table id="method-table">
+        <thead><tr><th>Severity method</th><th class="r">Accuracy</th><th class="r">Macro F1</th><th class="r">SEV-1 recall</th><th class="r">Under-triage</th><th class="r">Cost per ticket</th><th>Trade-off</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="small" style="margin-top:10px">Lower cost per ticket is better. Accuracy is measured against the severity staff recorded; against the hidden true severity the champion reaches <b data-k="test.severity.tfidf_baseline.accuracy_vs_true_severity" data-f="pct1"></b>, so part of the remaining error is noise in the recorded labels.</p>
+
+    <div class="grid2" style="margin-top:28px">
+      <div class="panel">
+        <h3>Champion confusion matrix (test period)</h3>
+        <p>Rows are the severity staff recorded; columns are the model's suggestion. Cells below the diagonal are over-triage and cells above it are under-triage.</p>
+        <div style="overflow-x:auto"><div class="cm" id="cm"></div></div>
+      </div>
+      <div class="panel">
+        <h3>Owner routing</h3>
+        <div class="bars" id="team-methods"></div>
+        <p>The owner model agrees with the recorded team <b data-k="test.team.tfidf_baseline.accuracy" data-f="pct1"></b> of the time, and with the team that should have owned it <b data-k="test.team.tfidf_baseline.accuracy_vs_true_team" data-f="pct2"></b> of the time. Most disagreements are tickets staff sent to the wrong queue, which is the routing error the agent is meant to catch. In this synthetic data the owner follows directly from the root cause, so real-world accuracy will be lower.</p>
+      </div>
+    </div>
+
+    <div class="grid3" style="margin-top:20px">
+      <div class="panel">
+        <h3>LLM classifier</h3>
+        <p>The repository includes an LLM adapter with a strict JSON output contract, retries on schema errors and a fail-closed default. It handles unseen wording and gives a written reason, but costs money per ticket, adds latency and is harder to audit. It is scored on a sample of test tickets with <span class="mono">scripts/run_llm_eval.py</span> when an API key is available; no LLM numbers are shown here because none were run for this build.</p>
+      </div>
+      <div class="panel">
+        <h3>Duplicate detection</h3>
+        <p>Each ticket is compared with earlier tickets on the same service within six hours. At the threshold chosen on validation, the agent flags duplicates with <b data-k="duplicates.chosen.precision" data-f="pct0"></b> precision and <b data-k="duplicates.chosen.recall" data-f="pct0"></b> recall. Staff marked <b data-k="duplicates.staff_flagging.recall" data-f="pct0"></b> of true duplicates; of the <b data-k="duplicates.staff_flagging.staff_missed" data-f="int"></b> they missed, the agent found <b data-k="duplicates.staff_flagging.agent_catches_staff_missed" data-f="int"></b>.</p>
+      </div>
+      <div class="panel">
+        <h3>Recurring-issue clustering</h3>
+        <p>Ticket text was reduced with latent semantic analysis (TF-IDF and truncated SVD) and grouped with k-means. The number of clusters, <b data-k="clustering.best_k"></b>, was chosen by silhouette score. Against the hidden root causes the clusters score a normalized mutual information of <b data-k="clustering.normalized_mutual_info" data-f="dec2"></b>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 4. Risk analytics -->
+<section class="block" id="analytics">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="step-tag">Risk analytics</span>
+      <h2>Where incidents come from, how fast they are fixed and what they cost</h2>
+      <p class="lede">The same data supports the operational risk view a risk committee would ask for: volume and anomalies, resolution performance, concentration by service, recurring root causes and a loss distribution.</p>
+    </div>
+
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline">
+        <h3>Daily incident volume with a statistical control limit</h3>
+        <div class="legend"><span><i style="background:var(--accent)"></i>Incidents per day</span><span><i style="background:var(--line)"></i>Control limit</span><span><i style="background:var(--sev1)"></i>Anomaly</span></div>
+      </div>
+      <div class="chart-box"><div id="ch-daily" class="svgc"></div></div>
+      <p class="chart-note">The limit is the 99.9th percentile of a Poisson distribution centered on the trailing median for the same day type (weekday or weekend). <b data-k="risk.outage_check.flagged_days"></b> days broke the limit, including <b data-k="risk.outage_check.caught"></b> of the <b data-k="risk.outage_check.planted_outage_days"></b> major outage days planted in the data. <b data-k="risk.outage_check.flagged_month_start"></b> others fall on the first days of a month, when month-end processing raises volume.</p>
+    </div>
+
+    <div class="grid2" style="margin-top:20px">
+      <div class="panel">
+        <h3>Monthly incidents by severity</h3>
+        <div class="legend"><span><i style="background:var(--sev1)"></i>SEV-1</span><span><i style="background:var(--sev2)"></i>SEV-2</span><span><i style="background:var(--sev3)"></i>SEV-3</span><span><i style="background:var(--sev4)"></i>SEV-4</span></div>
+        <div class="chart-box"><div id="ch-monthly" class="svgc"></div></div>
+      </div>
+      <div class="panel">
+        <h3>Resolution time against target</h3>
+        <div class="table-wrap" style="border:0">
+          <table id="sla-table"><thead><tr><th>Severity</th><th class="r">Median h</th><th class="r">P90 h</th><th class="r">Target</th><th class="r">Breach rate</th></tr></thead><tbody></tbody></table>
+        </div>
+        <p class="chart-note">SEV-1 incidents breach their 4-hour target most often. The owner team with the highest breach rate is <b id="worst-team"></b>, which depends on outside vendors to restore service.</p>
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-top:20px">
+      <div class="panel">
+        <h3>Incident concentration: service by severity</h3>
+        <div style="overflow-x:auto"><div class="heat" id="heat"></div></div>
+        <p class="chart-note">Darker cells hold more incidents. The four critical services (Payments Gateway, Trade Settlement, Core Banking Ledger and Card Authorization) carry the most SEV-1 incidents, while internal services mostly raise SEV-3 and SEV-4 tickets.</p>
+      </div>
+      <div class="panel">
+        <h3>Financial loss by service</h3>
+        <div class="legend"><span><i style="background:var(--accent)"></i>Critical service</span><span><i style="background:var(--faint)"></i>Other service</span><span>Total over 24 months</span></div>
+        <div class="chart-box tall"><div id="ch-service-loss" class="svgc"></div></div>
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-top:20px">
+      <div class="panel">
+        <h3>Annual operational loss distribution</h3>
+        <div class="chart-box"><div id="ch-loss" class="svgc"></div></div>
+        <p class="chart-note">Loss distribution approach: Poisson event frequency and lognormal loss severity fitted for each Basel event type, then <span data-k="risk.loss_distribution.simulations" data-f="int"></span> simulated years.</p>
+      </div>
+      <div class="panel">
+        <h3>Capital view</h3>
+        <div class="table-wrap" style="border:0">
+          <table><tbody>
+            <tr><td>Observed annual loss</td><td class="r" data-k="risk.loss_distribution.observed_annual_loss" data-f="usdm"></td></tr>
+            <tr><td>Expected annual loss (simulated)</td><td class="r" data-k="risk.loss_distribution.expected_annual_loss" data-f="usdm"></td></tr>
+            <tr><td>Value at risk, 99%</td><td class="r" data-k="risk.loss_distribution.var_99" data-f="usdm"></td></tr>
+            <tr><td>Value at risk, 99.9%</td><td class="r" data-k="risk.loss_distribution.var_99_9" data-f="usdm"></td></tr>
+            <tr><td>Expected shortfall, 99.9%</td><td class="r" data-k="risk.loss_distribution.es_99_9" data-f="usdm"></td></tr>
+            <tr><td>Unexpected loss (VaR 99.9% less expected loss)</td><td class="r" data-k="risk.loss_distribution.unexpected_loss_99_9" data-f="usdm"></td></tr>
+          </tbody></table>
+        </div>
+        <p class="chart-note">The simulated expected loss sits close to the observed figure, which is a basic back-test of the fit. Kolmogorov-Smirnov tests on the log losses do not reject the lognormal fit for any event type (all p-values above 0.05).</p>
+      </div>
+    </div>
+
+    <h3 style="margin:36px 0 14px">Recurring root causes ranked by loss</h3>
+    <div class="table-wrap">
+      <table id="cluster-table"><thead><tr><th>Recurring issue and top terms</th><th>Main service</th><th class="r">Incidents</th><th class="r">SEV-1 or SEV-2</th><th class="r">Repeat within 7 days</th><th class="r">Trend</th><th class="r">Loss</th></tr></thead><tbody></tbody></table>
+    </div>
+    <p class="small" style="margin-top:10px">Trend compares the average monthly count in the last six months with the first six; a value above 1.0 means the problem is growing. Labels were written after reading each cluster's tickets and checked against the hidden root cause. The top ten clusters by loss are shown. Vendor API outages form three clusters because reporters describe them in different ways, and all three are growing fastest after the NovaPay launch.</p>
+
+    <div class="grid2" style="margin-top:28px">
+      <div class="panel">
+        <h3>Third-party incident share by month</h3>
+        <div class="chart-box"><div id="ch-vendor" class="svgc"></div></div>
+        <p class="chart-note">After the NovaPay integration went live in July 2026, the share of vendor incidents rose from <b data-k="risk.category_shift.third_party_share_before" data-f="pct1"></b> to <b data-k="risk.category_shift.third_party_share_after" data-f="pct1"></b>. The population stability index between the periods before and after is <b data-k="risk.category_shift.psi" data-f="dec2"></b>.</p>
+      </div>
+      <div class="panel">
+        <h3>Change-related risk</h3>
+        <div class="kpis" style="margin-top:0">
+          <div class="kpi"><span class="v" data-k="risk.change_risk.change_related_share" data-f="pct0"></span><span class="l">of incidents follow a change</span></div>
+          <div class="kpi"><span class="v" data-k="risk.change_risk.change_related_loss_share" data-f="pct0"></span><span class="l">of financial loss comes from them</span></div>
+        </div>
+        <p>Change-related incidents are SEV-1 <b data-k="risk.change_risk.sev1_rate_change" data-f="pct1"></b> of the time against <b data-k="risk.change_risk.sev1_rate_other" data-f="pct1"></b> for other incidents. This supports tighter testing and rollback plans for releases to payments and card systems.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 5. Agent -->
+<section class="block" id="agent">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="step-tag">Step 4 · Agent workflow, tools, schemas and permission boundaries</span>
+      <h2>The agent can read and suggest. Only people can change a ticket.</h2>
+      <p class="lede">The agent runs a fixed sequence of tools for each new ticket and writes one structured suggestion. Every tool call, including refused ones, is written to an audit log.</p>
+    </div>
+
+    <div class="flow-wrap" aria-label="Agent workflow diagram">
+      <svg viewBox="0 0 980 250" role="img" aria-labelledby="flow-title">
+        <title id="flow-title">New ticket flows through three read-only tools, then a suggestion is written and routed to fast path, full review or immediate escalation, where a human decides.</title>
+        <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--faint)"/></marker></defs>
+        <g fill="none" stroke="var(--faint)" stroke-width="1.4" marker-end="url(#arr)">
+          <path d="M128 125 H168"/><path d="M318 125 H350"/><path d="M500 125 H532"/>
+          <path d="M682 125 C700 125 700 55 726 55"/><path d="M682 125 H726"/><path d="M682 125 C700 125 700 195 726 195"/>
+          <path d="M866 55 C886 55 886 125 900 125"/><path d="M866 125 H900"/><path d="M866 195 C886 195 886 125 900 125"/>
+        </g>
+        <g font-size="13">
+          <rect x="8" y="98" width="120" height="54" rx="6" fill="var(--surface-2)" stroke="var(--line)"/>
+          <text x="68" y="122" text-anchor="middle" fill="var(--ink)" font-weight="600">New ticket</text>
+          <text x="68" y="140" text-anchor="middle" fill="var(--muted)" font-size="11.5">TICKET_SCHEMA</text>
+
+          <rect x="168" y="70" width="150" height="110" rx="6" fill="var(--surface)" stroke="var(--line)"/>
+          <text x="243" y="92" text-anchor="middle" fill="var(--muted)" font-size="11" letter-spacing="1">READ TOOLS</text>
+          <text x="243" y="118" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">classify_severity</text>
+          <text x="243" y="140" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">suggest_owner</text>
+          <text x="243" y="162" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">find_similar</text>
+
+          <rect x="350" y="98" width="150" height="54" rx="6" fill="var(--surface)" stroke="var(--line)"/>
+          <text x="425" y="122" text-anchor="middle" fill="var(--ink)" font-weight="600">Routing policy</text>
+          <text x="425" y="140" text-anchor="middle" fill="var(--muted)" font-size="11.5">versioned thresholds</text>
+
+          <rect x="532" y="98" width="150" height="54" rx="6" fill="var(--surface)" stroke="var(--line)"/>
+          <text x="607" y="122" text-anchor="middle" fill="var(--ink)" font-weight="600">submit_suggestion</text>
+          <text x="607" y="140" text-anchor="middle" fill="var(--muted)" font-size="11.5">SUGGEST permission</text>
+
+          <rect x="726" y="34" width="140" height="42" rx="21" fill="var(--surface)" stroke="var(--ok)"/>
+          <text x="796" y="60" text-anchor="middle" fill="var(--ok)" font-weight="600">Fast path</text>
+          <rect x="726" y="104" width="140" height="42" rx="21" fill="var(--surface)" stroke="var(--watch)"/>
+          <text x="796" y="130" text-anchor="middle" fill="var(--watch)" font-weight="600">Full review</text>
+          <rect x="726" y="174" width="140" height="42" rx="21" fill="var(--surface)" stroke="var(--alert)"/>
+          <text x="796" y="200" text-anchor="middle" fill="var(--alert)" font-weight="600">Escalate now</text>
+
+          <rect x="900" y="98" width="72" height="54" rx="6" fill="var(--accent)"/>
+          <text x="936" y="122" text-anchor="middle" fill="var(--accent-ink)" font-weight="600">Human</text>
+          <text x="936" y="139" text-anchor="middle" fill="var(--accent-ink)" font-size="11.5">decides</text>
+        </g>
+      </svg>
+    </div>
+
+    <div class="grid2" style="margin-top:20px">
+      <div class="panel">
+        <h3>Tools and permission boundaries</h3>
+        <div class="table-wrap" style="border:0">
+          <table id="tool-table"><thead><tr><th>Tool</th><th>Permission</th><th>Agent access</th></tr></thead><tbody></tbody></table>
+        </div>
+        <p>Write tools are registered on purpose so that a request to use them is refused and logged, not silently ignored. The agent's response when asked to close a ticket:</p>
+        <pre id="refusal" style="white-space:pre-wrap"></pre>
+      </div>
+      <div class="panel">
+        <h3>Suggestion schema</h3>
+        <p>Every suggestion must pass this contract before it is queued for review. The LLM adapter is held to the same contract.</p>
+<pre>{
+  "incident_id": "string, INC + 7 digits",
+  "severity": "SEV-1 | SEV-2 | SEV-3 | SEV-4",
+  "severity_confidence": "number, 0 to 1",
+  "team": "one of 8 resolver teams",
+  "team_confidence": "number, 0 to 1",
+  "similar_incidents": "up to 5 past incidents",
+  "possible_duplicate_of": "incident ID or null",
+  "recurring_cluster": "cluster ID or null",
+  "review_route": "fast_path | full_review | escalate_now",
+  "rationale": "string, up to 500 characters",
+  "model_version": "string"
+}</pre>
+      </div>
+    </div>
+
+    <h3 style="margin:36px 0 6px">Agent output on sample test tickets</h3>
+    <p class="small" style="margin-bottom:14px">Three tickets per recorded severity from the test period. Ticket text is shown as reporters wrote it, typos included.</p>
+    <div class="table-wrap">
+      <table id="example-table"><thead><tr><th>Ticket</th><th>Service</th><th>Suggested</th><th>Recorded</th><th>Route</th><th>Closest past incident</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+</section>
+
+<!-- 6. Governance -->
+<section class="block" id="governance">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="step-tag">Step 5 · Validation, monitoring, human review and rollback</span>
+      <h2>Human review is designed around the cost of being wrong</h2>
+    </div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h3>Review routing policy</h3>
+        <ul class="list">
+          <li><b>Escalate now</b> when the chance of SEV-1 is at least <span data-k="policy.escalate_sev1_probability" data-f="pct0"></span>, whatever the top suggestion is.</li>
+          <li><b>Full review</b> for any suggested SEV-1 or SEV-2, and whenever the model is unsure.</li>
+          <li><b>Fast path</b> only when the chance of SEV-1 or SEV-2 is at most <span data-k="policy.fast_path_max_high_severity_probability" data-f="pct0"></span> and owner confidence is at least <span data-k="policy.fast_path_team_confidence" data-f="pct0"></span>. A coordinator still confirms with one click.</li>
+        </ul>
+        <p>The fast-path cap was set on validation data as the largest value that kept high-severity incidents below 3% of the fast path.</p>
+      </div>
+      <div class="panel">
+        <h3>Results on the test period</h3>
+        <div class="bars" id="route-bars"></div>
+        <ul class="list" style="margin-top:6px">
+          <li>Fast-path tickets that were really SEV-1 or SEV-2: <b data-k="routing.fast_path_high_severity_leakage" data-f="pct1"></b></li>
+          <li>Owner accuracy on the fast path: <b data-k="routing.fast_path_team_accuracy" data-f="pct1"></b></li>
+          <li>SEV-1 incidents escalated immediately: <b data-k="routing.sev1_escalated_now" data-f="pct0"></b>; the rest went to full review</li>
+          <li>Estimated triage time saved: <b data-k="routing.triage_hours_saved_test_period" data-f="int"></b> hours over six months</li>
+        </ul>
+        <p class="small">Time saved assumes 6 minutes for manual triage, 1.5 minutes to confirm a fast-path suggestion and 4 minutes for a full review that starts from a suggestion.</p>
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-top:20px">
+      <div class="panel">
+        <h3>Fast-path size against high-severity leakage</h3>
+        <div class="legend"><span><i style="background:var(--ok)"></i>Share of tickets on the fast path</span><span><i style="background:var(--sev1)"></i>Fast-path tickets that were SEV-1 or SEV-2</span></div>
+        <div class="chart-box"><div id="ch-policy" class="svgc"></div></div>
+        <p class="chart-note">Validation months. A larger cap sends more tickets to the fast path but lets more serious incidents through; the dashed line marks the 3% limit.</p>
+      </div>
+      <div class="panel">
+        <h3>Validation before release</h3>
+        <ul class="list">
+          <li><b>Time-based back-test</b> on six unseen months, with the champion chosen on separate validation months</li>
+          <li><b>Cost-weighted scoring</b> so that under-triage of SEV-1 dominates the comparison</li>
+          <li><b>Calibration check</b>: expected calibration error of <span data-k="test.severity.tfidf_baseline.calibration_error" data-f="dec3"></span>, so confidence scores can drive routing</li>
+          <li><b>Label-noise check</b> against the hidden true severity</li>
+          <li><b>Benchmark</b> against keyword rules and a majority-class baseline</li>
+          <li><b>Unit tests</b> for permissions, schema, routing rules, PSI and loss-model ordering</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3 style="margin:36px 0 14px">Monthly monitoring on the test period</h3>
+    <div class="table-wrap">
+      <table id="mon-table"><thead><tr><th>Month</th><th class="r">Tickets</th><th class="r">Severity overrides</th><th class="r">Owner overrides</th><th class="r">PSI, category mix</th><th class="r">PSI, predictions</th><th class="r">Fast path</th><th>Status</th></tr></thead><tbody></tbody></table>
+    </div>
+    <p class="small" style="margin-top:10px">An override is a ticket where staff recorded a different value from the suggestion. Limits: overrides more than 3 points above the validation rate of <span data-k="monitoring.thresholds.validation_override_rate" data-f="pct1"></span> trigger a watch and more than 5 points an alert; PSI above 0.10 triggers a watch and above 0.25 an alert. The category-mix PSI crossed the watch limit in three of the four months after the NovaPay launch.</p>
+
+    <div class="grid2" style="margin-top:28px">
+      <div class="panel">
+        <h3>Rollback</h3>
+        <ul class="list">
+          <li><b>Kill switch</b> in <span class="mono">models/registry.json</span> stops all suggestions; tickets fall back to manual triage at once.</li>
+          <li><b>Champion and fallback</b>: if the champion fails monitoring, the registry points back to the keyword rules or the previous model version.</li>
+          <li><b>Versioned policy</b>: routing thresholds are versioned separately from the model, so a policy can be rolled back without retraining.</li>
+          <li><b>No data to undo</b>: the agent never writes to the system of record, so rolling back never requires repairing tickets.</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Triggers for retraining or rollback</h3>
+        <ul class="list">
+          <li>Two consecutive months on alert</li>
+          <li>Any SEV-1 incident that reaches the fast path</li>
+          <li>Fast-path high-severity leakage above 3% in a month</li>
+          <li>A new vendor, service or team, such as the NovaPay integration</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 7. Plan -->
+<section class="block" id="plan">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="step-tag">Step 6 · Success metrics and implementation plan</span>
+      <h2>Success is measured by safer triage first and saved time second</h2>
+      <p class="lede">Results are from the six-month test period. Two targets are not met yet: one SEV-1 ticket reached the fast path, and SEV-1 resolution times are a pre-launch baseline the pilot is meant to improve.</p>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Metric</th><th>Why it matters</th><th class="r">Result</th><th class="r">Target</th></tr></thead>
+        <tbody>
+          <tr><td>SEV-1 incidents kept off the fast path</td><td>Safety: serious incidents always reach a person</td><td class="r" data-k="routing.sev1_caught_by_escalation_or_review" data-f="pct1"></td><td class="r">100%</td></tr>
+          <tr><td>Under-triage rate</td><td>The main risk outcome</td><td class="r" data-k="test.severity.tfidf_baseline.under_triage_rate" data-f="pct1"></td><td class="r">Below 15%</td></tr>
+          <tr><td>Cost per ticket against keyword rules</td><td>Shows the model beats the simple option</td><td class="r"><span data-k="test.severity.tfidf_baseline.cost_per_ticket" data-f="dec2"></span> vs <span data-k="test.severity.keyword_rules.cost_per_ticket" data-f="dec2"></span></td><td class="r">At least 50% lower</td></tr>
+          <tr><td>Owner suggestion accuracy</td><td>Fewer tickets in the wrong queue</td><td class="r" data-k="test.team.tfidf_baseline.accuracy" data-f="pct1"></td><td class="r">Above 90%</td></tr>
+          <tr><td>Triage effort saved</td><td>Coordinator time freed for real outages</td><td class="r" data-k="routing.triage_minutes_saved_pct" data-f="pct0"></td><td class="r">Above 30%</td></tr>
+          <tr><td>Duplicates found that staff missed</td><td>Less repeated work</td><td class="r"><span data-k="duplicates.staff_flagging.agent_catches_staff_missed" data-f="int"></span> of <span data-k="duplicates.staff_flagging.staff_missed" data-f="int"></span></td><td class="r">Above 40%</td></tr>
+          <tr><td>SLA breach rate, SEV-1</td><td>Business outcome to track after go-live; the result is today's baseline</td><td class="r" data-k="risk.sla_by_severity.0.breach_rate" data-f="pct1"></td><td class="r">Below 10%</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="margin:36px 0 14px">Implementation plan</h3>
+    <div class="phases">
+      <div class="phase"><div class="when"><b>Phase 1</b>Weeks 1 to 3</div><div><b>Data and baseline</b><ul><li>Connect to the ticketing system read-only and build the cleaning pipeline</li><li>Agree the severity cost matrix with the service desk and operational risk</li><li>Train and back-test the models; document results for model risk review</li></ul><p class="gate"><b>Gate:</b> model risk sign-off on the validation report.</p></div></div>
+      <div class="phase"><div class="when"><b>Phase 2</b>Weeks 4 to 7</div><div><b>Shadow mode</b><ul><li>The agent suggests on live tickets, but coordinators do not see the suggestions</li><li>Compare suggestions with human decisions every week</li><li>Tune the routing policy on live data</li></ul><p class="gate"><b>Gate:</b> no SEV-1 incident on the fast path for four weeks.</p></div></div>
+      <div class="phase"><div class="when"><b>Phase 3</b>Weeks 8 to 11</div><div><b>Assisted triage pilot</b><ul><li>Show suggestions to one shift of coordinators, with accept and override buttons</li><li>Log every override as monitoring data and feedback for retraining</li><li>Measure time saved and coordinator trust</li></ul><p class="gate"><b>Gate:</b> success-metric targets met and coordinators support rollout.</p></div></div>
+      <div class="phase"><div class="when"><b>Phase 4</b>Week 12 onward</div><div><b>Rollout and run</b><ul><li>Roll out to all shifts with the monthly monitoring report</li><li>Run the LLM challenger on hard tickets and compare cost and accuracy</li><li>Retrain quarterly, or sooner if monitoring triggers it</li></ul><p class="gate"><b>Gate:</b> quarterly model review with operational risk.</p></div></div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p><b style="color:var(--ink)">Incident Triage Agent</b> · An in-class operational risk project.</p>
+    <p>All data on this page is synthetic and generated by the project code; it does not describe any real bank. Figures are recomputed each time the pipeline runs.</p>
+    <p><a href="https://github.com/aishwaryapurohit15/incident-triage-agent" id="repo-link">View the code on GitHub</a></p>
+  </div>
+</footer>
+
+<script src="data/site_data.js"></script>
+<script src="data/web_model.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

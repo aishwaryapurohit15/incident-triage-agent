@@ -1,0 +1,7 @@
+{
+  "champion": "tfidf_baseline-v1",
+  "fallback": "keyword_rules",
+  "policy": "policy-1.0",
+  "kill_switch": false,
+  "notes": "Set kill_switch to true to stop suggestions and fall back to manual triage."
+}
